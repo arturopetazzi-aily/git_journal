@@ -73,7 +73,7 @@ headers = {
 }
 
 payload = {
-    "model": "eu.anthropic.claude-haiku-4-5-20251001-v1:0",   
+    "model": os.getenv("AILY_MODEL"),   
     "max_tokens": 500,
     "messages": [
         {"role": "user", "content": prompt}
