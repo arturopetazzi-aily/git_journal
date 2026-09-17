@@ -3,6 +3,7 @@
 weekly_summary.py
 Run every Friday at 5pm via cron.
 Reads all daily logs from the current week and writes a weekly summary.
+Uses CLAUDE.md for instructions and weekly-template.md for structure.
 """
 
 import os
@@ -25,15 +26,32 @@ else:
     print(f"❌ .env file not found at {env_path}")
     sys.exit(1)
 
-AILY_API_KEY = os.getenv("AILY_API_KEY")
-AILY_GATEWAY = os.getenv("AILY_GATEWAY_URL")
-AILY_MODEL   = os.getenv("AILY_MODEL")
-VAULT_PATH   = Path(os.getenv("VAULT_PATH"))
+AILY_API_KEY  = os.getenv("AILY_API_KEY")
+AILY_GATEWAY  = os.getenv("AILY_GATEWAY_URL")
+AILY_MODEL    = os.getenv("AILY_MODEL")
+VAULT_PATH    = Path(os.getenv("VAULT_PATH"))
+SCRIPTS_PATH  = Path.home() / "dev_journal_scripts"
+
+# ── Load CLAUDE.md instructions ───────────────────────────────
+claude_md = SCRIPTS_PATH / "CLAUDE.md"
+if claude_md.exists():
+    instructions = claude_md.read_text()
+else:
+    print("⚠️  CLAUDE.md not found, proceeding without instructions")
+    instructions = ""
+
+# ── Load weekly template ──────────────────────────────────────
+template_file = VAULT_PATH / "Templates" / "weekly-template.md"
+if template_file.exists():
+    template = template_file.read_text()
+else:
+    print("⚠️  weekly-template.md not found, proceeding without template")
+    template = ""
 
 # ── Find this week's Monday to Friday ────────────────────────
 today     = datetime.now()
 monday    = today - timedelta(days=today.weekday())
-week_days = [monday + timedelta(days=i) for i in range(5)]  # Mon-Fri
+week_days = [monday + timedelta(days=i) for i in range(5)]
 week_num  = today.strftime("%Y-W%W")
 
 print(f"📅 Collecting daily logs for week {week_num}...")
@@ -61,40 +79,20 @@ combined_logs = "\n\n---\n\n".join(daily_logs)
 
 # ── Build the prompt ──────────────────────────────────────────
 prompt = f"""
-Here are my daily work logs for the week of {week_num}.
-Each section is one day's summary of git pushes and coding work.
+Here are the daily work logs for the week of {week_num}.
 
 {combined_logs}
 
-Please write a weekly review using exactly this format:
+---
 
-# Weekly Review - {week_num}
-tags: [weekly, review]
+Use this template as the structure for your response:
 
-## 📊 Week at a Glance
-- Days worked: <count days that have logs>
-- Repos touched: <unique list>
-- Total pushes: <approximate count>
-- Main theme this week: <one sentence>
+{template}
 
-## 🏆 Key Accomplishments
-<3-5 bullet points of the most significant things completed this week.
-Focus on outcomes, not just tasks.>
-
-## 📁 Work by Repository
-<for each repo worked on, a short paragraph summarizing what was done
-across the whole week, not just day by day>
-
-## 🧠 Patterns & Learnings
-<what patterns do you notice across the week?
-any recurring themes, blockers, or approaches that worked well?>
-
-## 🎯 Next Week
-<based on this week's work and any mentioned next steps,
-what are the logical priorities for next week?>
-
-Keep it concise and professional.
-Only include what is inferable from the daily logs provided.
+Replace all {{{{placeholder}}}} fields with the actual content.
+Follow the writing instructions provided in the system prompt exactly.
+Do not add sections that are not in the template.
+If a section has no meaningful content, write "None" rather than omitting it.
 """
 
 # ── Call Aily gateway ─────────────────────────────────────────
@@ -106,6 +104,7 @@ headers = {
 payload = {
     "model": AILY_MODEL,
     "max_tokens": 1500,
+    "system": instructions,
     "messages": [
         {"role": "user", "content": prompt}
     ]
@@ -122,7 +121,6 @@ try:
     response.raise_for_status()
     summary = response.json()["choices"][0]["message"]["content"].strip()
 
-    # ── Write to Weekly folder ────────────────────────────────
     weekly_dir  = VAULT_PATH / "Weekly"
     weekly_dir.mkdir(parents=True, exist_ok=True)
     weekly_file = weekly_dir / f"{week_num}.md"
